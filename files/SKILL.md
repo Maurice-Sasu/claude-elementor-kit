@@ -1,478 +1,1180 @@
----
-name: elementor-mcp
-description: Helps with WordPress + Elementor work via the elementor-mcp MCP server — building new pages, editing existing ones, inspecting site state, or exploring what's possible. Asks what the user wants before acting. Use when the user references the Elementor MCP, invokes `/elementor-mcp`, or runs `mcp__elementor__elementor-mcp-*` tools. Also covers initial install of the MCP Adapter + elementor-mcp plugins, app-password auth wiring, schema-loading discipline, and the widget-vs-HTML decision tree. SKIP for Bricks, Divi, Beaver Builder, or non-Elementor WordPress builds.
----
+# Elementor Pro + ACF Pro Skill
 
-# Elementor MCP Skill
+You are operating against a WordPress site with the **elementor-mcp** server connected via the WordPress MCP Adapter. This site uses **Elementor Pro**, **Advanced Custom Fields Pro (ACF Pro)**, and **WP-CLI** for full autonomy. This skill file is the single source of truth for how to build, edit, and manage this site.
 
-You are operating against a WordPress site with the **elementor-mcp** server (`https://github.com/msrbuilds/elementor-mcp`) connected via the WordPress MCP Adapter. This skill captures everything I learned the hard way the first time through, so subsequent sessions start at expertise level.
+---
 
 ## 🛑 First Action Protocol — ASK BEFORE DOING
 
-**When this skill is invoked, do not start running tools. Ask the user what they want first.**
+When this skill is invoked, do not start running tools. Ask the user what they want first.
 
-If the user's invocation message *already* contains a clear task — *"build me a hero section from `index.html`"*, *"show me my current global colors"*, *"change the burgundy to navy"* — proceed with that task directly.
+If the invocation message already contains a clear task — *"build the single property template"*, *"add the enquiry form to the contact page"* — proceed directly.
 
-Otherwise *(invocations like `/elementor-mcp` alone, or "use the Elementor MCP" with no follow-up)*, **respond with this menu and wait for the user to pick:**
+Otherwise respond with this menu and wait:
 
 ```
-What would you like to do with your Elementor site?
+What would you like to do?
 
-  1. Build       — create new pages or sections from a design
-  2. Edit        — change something on an existing page
-  3. Reference   — inspect current state (pages, colors, fonts, content)
-  4. Explore     — show me what's possible / what can the MCP do here
+  1. Build       — create a new page, template, or section
+  2. Edit        — change something on an existing page or template
+  3. Reference   — inspect current state (pages, templates, fields, colors)
+  4. Portfolio   — set up or manage the Properties CPT, ACF fields, or templates
+  5. Explore     — show me what's possible
 ```
 
-Do **not** silently default to "build" — that's the most destructive action and forces a path the user may not want. Wait for the user to choose 1/2/3/4 *(or describe their task in their own words)* before invoking any MCP tool other than the harmless read-only ones at the bottom of this section.
+Wait for the user to choose before invoking any tool other than the read-only smoke tests below.
 
-### Read-only "smoke test" calls that are always safe to run
+### Safe read-only calls (always fine to run first)
 
-When the user picks any option, you can run these **before** asking follow-up questions, since they help frame the next response:
+```
+mcp__elementor__elementor-mcp-list-pages
+mcp__elementor__elementor-mcp-get-global-settings
+```
 
-- `mcp__elementor__elementor-mcp-list-pages` — confirms auth + lists what's there
-- `mcp__elementor__elementor-mcp-get-global-settings` — current colors/fonts kit
+---
 
-That's it for unprompted tool calls. **Anything that creates, modifies, or deletes data requires the user to have explicitly asked for it.**
+## Core Principles — Read Before Anything Else
 
-## When this skill applies
+### 1. Elementor Pro Only — No HTML Widgets
 
-- The user mentions Elementor MCP, types `/elementor-mcp`, or says "use the Elementor MCP"
-- A `.mcp.json` in the project registers an MCP server pointing at `wp-json/mcp/elementor-mcp-server`
-- The user asks to build, edit, inspect, or troubleshoot an Elementor page
-- Tools beginning with `mcp__elementor__elementor-mcp-*` are available
+This site has **Elementor Pro**. Every section, layout, content block, form, and navigation element must be built with native Elementor or Elementor Pro widgets. The HTML widget is **banned** except for one narrow exception defined at the bottom of this file.
 
-## First-session setup (when MCP not yet connected)
+Do not think "I'll just drop this as HTML — it's faster." That produces pages the user cannot edit visually, cannot reuse globally, and cannot maintain. Always find the native Pro widget first.
 
-If the user has a WordPress site but no `.mcp.json` and no `elementor` MCP loaded:
+### 2. Theme Builder for All Global Templates
 
-1. **Check whether they're using Local-by-Flywheel or a live host.** Setup paths differ.
-2. **Run the bundled setup script** at `~/.claude/scripts/setup-elementor-mcp.sh` — it handles plugin install, auth wiring, and `.mcp.json` generation interactively for both flavors.
+Because this site has Elementor Pro, **all** of the following are built exclusively through the Theme Builder — not as regular pages:
+
+- Site-wide Header
+- Site-wide Footer
+- Single Property template (single post for the Properties CPT)
+- Loop Item template (the card used inside Loop Grid widgets)
+- Archive template (if needed for property listing pages)
+
+Never build headers or footers as regular Elementor pages and include them via shortcode or PHP. Always use Theme Builder.
+
+### 3. ACF Pro for All Dynamic Property Data
+
+All property-specific data (price, location, status, specs, gallery, etc.) lives in ACF Pro custom fields attached to the Properties custom post type. In Elementor templates, all dynamic data is pulled through **Elementor's Dynamic Tags** system, which natively reads ACF fields. Never hardcode property data inside an Elementor template.
+
+### 4. Full Autonomy — No Manual Steps for the User
+
+When setting up CPTs, taxonomies, ACF field groups, or any WordPress configuration, handle everything via WP-CLI or the MCP. Do not ask the user to go into WP Admin and click through menus unless a task is genuinely impossible to automate (e.g. a one-time license activation). Always explain what you're doing and why.
+
+---
+
+## Plugin Stack
+
+| Role | Plugin |
+|---|---|
+| Page Builder | Elementor Pro |
+| Dynamic Fields | Advanced Custom Fields Pro |
+| Theme Templates | Elementor Theme Builder (included in Pro) |
+| Forms | Elementor Pro Form Widget |
+| CLI Automation | WP-CLI |
+| Custom Post Types | Registered via WP-CLI / `functions.php` |
+
+---
+
+## First-Session Setup
+
+If the MCP is not yet connected:
+
+1. Check whether the site is Local-by-Flywheel or a live host.
+2. Run the bundled setup script:
    ```bash
    bash ~/.claude/scripts/setup-elementor-mcp.sh
    ```
-3. After the script completes, instruct the user to **quit and reopen Claude Code in the project directory** so the new `.mcp.json` is picked up.
-4. On reopen, the deferred MCP tools will be exposed via ToolSearch — load the ones you need with `select:` queries.
+3. After the script completes, tell the user to quit and reopen Claude Code so `.mcp.json` is picked up.
+4. On reopen, run `list-pages` to confirm auth.
 
-If something fails, see "Setup gotchas" below.
+---
 
-## Working session conventions
+## Design Tokens — Global Colors and Typography
 
-### Always do this first
+Before building any page, establish the design tokens that will be reused everywhere.
+
+### Brand Palette
 
 ```
-mcp__elementor__elementor-mcp-list-pages   # confirms auth + lists existing pages
-mcp__elementor__elementor-mcp-get-global-settings   # see existing colors/fonts kit
-mcp__elementor__elementor-mcp-get-container-schema  # ground truth on flex_* key names
+--navy-900 / Dark Green:  #0d130c   (darkest background)
+--navy-800:               #141d13
+--navy-700:               #1a2619
+--navy-500 / Brand Green: #243421   (primary brand green)
+--gold-500 / Brand Gold:  #7e745c   (primary accent)
+--gold-400:               #9a8f76
+--gold-300:               #b3a992
+--stone-500 / Grey:       #606060
+--ivory:                  #f8f4ed   (light background / text on dark)
+--white:                  #ffffff
+--black:                  #000000
 ```
 
-The container schema is large (~50KB). Read it once, then write down the keys you'll use in your reply text so you don't need to re-fetch it. Critical keys:
+### Typography
 
-- `flex_direction`, `flex_justify_content`, `flex_align_items`, `flex_gap`, `flex_wrap` — note the **`flex_` prefix** on justify/align (issue #32 was about these being written under wrong keys in older versions)
-- `content_width: "boxed"|"full"` + `boxed_width: {unit, size, sizes}`
-- `min_height: {unit, size, sizes}` — use unit `vh` for full-screen heroes
-- `padding`/`margin: {unit, top, right, bottom, left, isLinked}` — `isLinked: false` when sides differ
-- `background_background: "classic"|"gradient"|"video"` — must be set first or other background_* keys are ignored
-- `background_overlay_*` — separate parallel set for overlays. `background_overlay_opacity: {unit:"px", size: 0.5}` (yes, the unit is `px` even for opacity — quirk of the schema)
+- **Display / Headings:** Cormorant Garamond (Google Fonts) — weights 300, 400, 500; italic variants enabled
+- **Body / UI:** Manrope (Google Fonts) — weights 300, 400, 500, 600, 700
+- **Letter spacing (eyebrows/labels):** 0.2em–0.28em, uppercase, Manrope 600
+- **Base font size:** 16px
 
-### Widget call convention — flat params, NOT nested in `settings`
+Set these via:
+```
+mcp__elementor__elementor-mcp-update-global-colors
+mcp__elementor__elementor-mcp-update-global-typography
+```
 
-This bit me hard the first time. The `add-*` shortcut tools take their settings as **top-level parameters**, not inside a `settings: {}` object:
+---
+
+## The Widget-First Rule — Native Pro Widgets
+
+Every content need maps to a native Elementor Pro widget. Use this table before reaching for anything else.
+
+| Content Need | Elementor Pro Widget |
+|---|---|
+| Headings (H1–H6) | Heading widget |
+| Body text / rich text | Text Editor widget |
+| Single image | Image widget |
+| Image gallery | Gallery widget (or Media Carousel) |
+| Button / CTA | Button widget |
+| Layout rows / columns | Container (Flexbox) |
+| Navigation | Nav Menu widget (Pro) |
+| Site logo | Site Logo widget (Pro) |
+| Forms | Form widget (Pro) |
+| Icon + text list | Icon List widget |
+| Tabs | Tabs widget (Pro) |
+| Accordion / FAQ | Accordion widget |
+| Slider / carousel | Slides widget or Media Carousel |
+| Video | Video widget |
+| Dynamic post grid / loop | Loop Grid widget (Pro) |
+| Single ACF text field | Text widget + Dynamic Tag |
+| Single ACF image | Image widget + Dynamic Tag |
+| ACF gallery | Gallery widget + Dynamic Tag |
+| Post title (in template) | Post Title widget (Pro) |
+| Post featured image | Featured Image widget (Pro) |
+| Post content | Post Content widget (Pro) |
+| Post excerpt | Post Excerpt widget (Pro) |
+| Breadcrumbs | Breadcrumbs widget (Pro) |
+| Archive title | Archive Title widget (Pro) |
+| Search form | Search Form widget |
+| Social icons | Social Icons widget |
+| Divider / separator | Divider widget |
+| Spacer | Spacer widget |
+| Icon | Icon widget |
+| Star rating | Star Rating widget |
+| Price list | Price List widget |
+| Call to action box | Call to Action widget (Pro) |
+| Flip box | Flip Box widget (Pro) |
+| Animated headline | Animated Headline widget (Pro) |
+| Countdown timer | Countdown widget (Pro) |
+| Progress bar | Progress Bar widget |
+| Table of contents | Table of Contents widget (Pro) |
+| Blockquote | Blockquote widget |
+
+### The Only Permitted HTML Widget Exception
+
+The HTML widget may only be used for **scoped CSS overrides** when a native Elementor Pro widget has a specific styling detail that cannot be reached through the widget's own Style tab controls. Examples:
+
+- Overriding the active state colour of a Nav Menu item that the widget's controls don't expose
+- Adding a CSS custom property that Elementor's inline controls don't support
+- A keyframe animation referenced by a widget that Elementor Motions can't produce
+
+**Rules for this exception:**
+- The HTML widget must contain **only a `<style>` block** — no markup, no rendered content whatsoever
+- Every selector must be scoped to the specific Elementor element ID (e.g. `.elementor-element-f8d1545 .e-n-tab-title`)
+- Add a comment explaining why a native widget control couldn't handle this
+- Tell the user this widget is styling-only and cannot be edited visually
+
+If you find yourself adding `<div>`, `<a>`, `<img>`, `<p>`, or any content markup inside an HTML widget — stop immediately. That content belongs in native widgets.
+
+---
+
+## Container (Flexbox) Layout Convention
+
+All layout is done with Elementor's Container widget in Flexbox mode. Key settings:
+
+```
+Content Width:     Boxed (for centred content) or Full Width (for edge-to-edge sections)
+Boxed Width:       1280px (standard) or 1440px (wide)
+Flex Direction:    Row (columns) or Column (stacked)
+Justify Content:   flex-start | center | space-between | space-around
+Align Items:       flex-start | center | stretch
+Gap:               set in px — standard column gap 32px, section gap 80px
+Min Height:        use vh for full-screen hero sections (e.g. 100vh)
+Padding:           set per side; standard section padding 100px top/bottom, 32px sides on mobile
+```
+
+Always set `typography_typography: "custom"` before setting any other typography control — without it, font family, size, weight, and line-height settings are silently ignored.
+
+---
+
+## Typography Control Convention
+
+When setting typography on any widget, always include the enable flag first:
 
 ```js
-// ✓ CORRECT
+typography_typography: "custom",       // required — enables all other typography_* keys
+typography_font_family: "Cormorant Garamond",
+typography_font_size: { size: 64, unit: "px" },
+typography_font_weight: "300",
+typography_line_height: { size: 1.05, unit: "em" },
+typography_letter_spacing: { size: 0, unit: "px" },
+typography_font_style: "normal",       // or "italic"
+```
+
+For eyebrow labels (small uppercase tracking text):
+```js
+typography_typography: "custom",
+typography_font_family: "Manrope",
+typography_font_size: { size: 11, unit: "px" },
+typography_font_weight: "600",
+typography_letter_spacing: { size: 2.8, unit: "px" },
+typography_text_transform: "uppercase",
+```
+
+---
+
+## Theme Builder — Headers and Footers
+
+### Step 1 — Create the Header Template
+
+```
+mcp__elementor__elementor-mcp-create-theme-template({
+  type: "header",
+  title: "Site Header",
+  conditions: [{ type: "general", name: "general" }]   // displays site-wide
+})
+```
+
+### Step 2 — Build the Header Layout
+
+The header is a full-width container with three children:
+
+**Left — Site Logo**
+- Use the **Site Logo widget** (Pro). Point it to `images/logo-white.png`. Set a max-height of 72px.
+
+**Centre — Nav Menu**
+- Use the **Nav Menu widget** (Pro). Select the WordPress menu by name (e.g. "Main Navigation"). Set layout to Horizontal. Style the active item with `--gold-500` underline. Configure the hamburger breakpoint for mobile.
+
+**Right — CTA Button**
+- Use the **Button widget**. Label: "Private Consultation →". Style as outlined (transparent background, `--ivory` border, `--ivory` text). On hover: fill with `--gold-500`.
+
+Header container settings:
+```
+Background: #0d130c (--navy-900) with 0.92 opacity + backdrop-filter blur (set via Motion > Sticky)
+Position: Sticky (set via Advanced > Motion Effects > Sticky: Top)
+Z-Index: 100
+Padding: 16px top/bottom
+```
+
+### Step 3 — Create the Footer Template
+
+```
+mcp__elementor__elementor-mcp-create-theme-template({
+  type: "footer",
+  title: "Site Footer",
+  conditions: [{ type: "general", name: "general" }]
+})
+```
+
+Footer layout: full-width dark container (`--navy-900` background), inner boxed container with:
+- **Row 1:** 5-column grid — Brand column (Site Logo + tagline Text Editor + italic motto) + 4 nav link columns (Icon List widgets for each group)
+- **Row 2:** Single-row container with copyright Text Editor (left), Social Icons widget (centre), and legal links Nav Menu or Text Editor (right)
+
+Footer Social Icons widget: use the Social Icons widget (Pro). Add Instagram, LinkedIn, X, Facebook. Style: size 18px, colour `--ivory` at 60% opacity, hover colour `--gold-400`.
+
+---
+
+## Elementor Pro Form Widget
+
+All forms on this site use the native **Elementor Pro Form widget**. Never use a third-party form plugin, an HTML `<form>` tag, or a shortcode-based form.
+
+### Standard Enquiry Form Structure
+
+Add a Form widget and configure the following fields:
+
+| Field Label | Field Type | Required |
+|---|---|---|
+| Full Name | Text | Yes |
+| Email | Email | Yes |
+| Phone / WhatsApp | Tel | No |
+| Unit Interest | Select (options: 1-Bed, 2-Bed, 3-Bed, 4-Bed+, Penthouse, Open to recommendation) | No |
+| Investment Budget | Select (options: Up to $500K, $500K–$1M, $1M–$2M, $2M–$5M, $5M+) | No |
+| Intent | Select (options: Own Use, Investment / Rental, Both) | No |
+| Message | Textarea | No |
+
+**Submit button:** Label "Submit Enquiry →", full-width, background `--navy-500`, text `--ivory`, no border radius.
+
+**Actions After Submit:** Configure Email action — send to site admin email. Subject: "New Enquiry — [field id="full_name"]". Add a Success Message action: "Thank you. We'll be in touch within one business day."
+
+**Form styling** (via the Form widget's Style tab — no HTML widget needed):
+- Labels: Manrope, 11px, uppercase, letter-spacing 2.8px, colour `--stone-500`
+- Inputs: Cormorant Garamond, 18px, transparent background, border-bottom only (`--stone-300`), no border radius, padding 12px 0
+- Focus state: border-bottom colour `--gold-500`
+- Submit button: Manrope, 13px, uppercase, letter-spacing 2px, background `--navy-500`, hover `--gold-500`
+
+---
+
+## Properties Custom Post Type — Full Setup
+
+The Properties CPT powers the entire portfolio section. Set it up in this exact order.
+
+### Step 1 — Register the Custom Post Type via WP-CLI
+
+Run the following WP-CLI command to register the CPT by adding code to `functions.php`:
+
+```bash
+wp eval '
+function pegasus_register_properties_cpt() {
+  register_post_type("properties", [
+    "label"               => "Properties",
+    "labels"              => [
+      "name"               => "Properties",
+      "singular_name"      => "Property",
+      "add_new_item"       => "Add New Property",
+      "edit_item"          => "Edit Property",
+      "view_item"          => "View Property",
+      "search_items"       => "Search Properties",
+      "not_found"          => "No properties found",
+    ],
+    "public"              => true,
+    "has_archive"         => true,
+    "show_in_rest"        => true,
+    "supports"            => ["title", "editor", "thumbnail", "excerpt", "revisions"],
+    "menu_icon"           => "dashicons-building",
+    "rewrite"             => ["slug" => "properties"],
+    "show_in_nav_menus"   => true,
+  ]);
+}
+add_action("init", "pegasus_register_properties_cpt");
+'
+```
+
+Then add this function permanently to `functions.php`:
+
+```bash
+wp eval-file /path/to/register-cpt.php
+# OR directly append to functions.php via bash
+```
+
+After registering, flush rewrite rules:
+
+```bash
+wp rewrite flush
+```
+
+### Step 2 — Register Taxonomies via WP-CLI
+
+Register three taxonomies: **Property Location**, **Property Status**, and **Property Type**.
+
+```bash
+wp eval '
+function pegasus_register_property_taxonomies() {
+
+  // Location taxonomy
+  register_taxonomy("property_location", "properties", [
+    "label"        => "Locations",
+    "labels"       => ["singular_name" => "Location", "add_new_item" => "Add New Location"],
+    "hierarchical" => true,
+    "public"       => true,
+    "show_in_rest" => true,
+    "rewrite"      => ["slug" => "property-location"],
+  ]);
+
+  // Status taxonomy
+  register_taxonomy("property_status", "properties", [
+    "label"        => "Statuses",
+    "labels"       => ["singular_name" => "Status", "add_new_item" => "Add New Status"],
+    "hierarchical" => true,
+    "public"       => true,
+    "show_in_rest" => true,
+    "rewrite"      => ["slug" => "property-status"],
+  ]);
+
+  // Type taxonomy
+  register_taxonomy("property_type", "properties", [
+    "label"        => "Types",
+    "labels"       => ["singular_name" => "Type", "add_new_item" => "Add New Type"],
+    "hierarchical" => true,
+    "public"       => true,
+    "show_in_rest" => true,
+    "rewrite"      => ["slug" => "property-type"],
+  ]);
+}
+add_action("init", "pegasus_register_property_taxonomies");
+'
+```
+
+### Step 3 — Populate Default Taxonomy Terms via WP-CLI
+
+```bash
+# Property Location terms
+wp term create property_location "Accra" --slug=accra
+wp term create property_location "Dubai" --slug=dubai
+wp term create property_location "Airport City" --slug=airport-city --parent=$(wp term get property_location accra --field=term_id)
+wp term create property_location "Airport Residential" --slug=airport-residential --parent=$(wp term get property_location accra --field=term_id)
+wp term create property_location "Central Business District" --slug=cbd --parent=$(wp term get property_location accra --field=term_id)
+wp term create property_location "East Legon" --slug=east-legon --parent=$(wp term get property_location accra --field=term_id)
+wp term create property_location "Dzorwulu" --slug=dzorwulu --parent=$(wp term get property_location accra --field=term_id)
+wp term create property_location "La Palm Coastal Corridor" --slug=la-palm --parent=$(wp term get property_location accra --field=term_id)
+wp term create property_location "Downtown Dubai" --slug=downtown-dubai --parent=$(wp term get property_location dubai --field=term_id)
+wp term create property_location "Dubai Marina" --slug=dubai-marina --parent=$(wp term get property_location dubai --field=term_id)
+wp term create property_location "Business Bay" --slug=business-bay --parent=$(wp term get property_location dubai --field=term_id)
+
+# Property Status terms
+wp term create property_status "Off-Plan" --slug=off-plan
+wp term create property_status "Under Construction" --slug=under-construction
+wp term create property_status "Completed" --slug=completed
+wp term create property_status "Resale" --slug=resale
+wp term create property_status "Coming Soon" --slug=coming-soon
+wp term create property_status "By Invitation" --slug=by-invitation
+wp term create property_status "Launching 2026" --slug=launching-2026
+
+# Property Type terms
+wp term create property_type "Branded Residences" --slug=branded-residences
+wp term create property_type "Mixed-Use" --slug=mixed-use
+wp term create property_type "Boutique Apartments" --slug=boutique-apartments
+wp term create property_type "Townhouses" --slug=townhouses
+wp term create property_type "Penthouses" --slug=penthouses
+wp term create property_type "Hotel-Branded" --slug=hotel-branded
+wp term create property_type "Resale Inventory" --slug=resale-inventory
+```
+
+### Step 4 — Create ACF Pro Field Group via WP-CLI or JSON Import
+
+Create the ACF field group for the Properties CPT. The cleanest method is importing via JSON. Write this JSON to a file and import it:
+
+```bash
+wp acf import --json-file=/path/to/properties-fields.json
+```
+
+The JSON defines the following fields:
+
+**Group name:** Property Details
+**Location rule:** Post Type is equal to `properties`
+
+```json
+{
+  "key": "group_properties",
+  "title": "Property Details",
+  "fields": [
+    {
+      "key": "field_property_tagline",
+      "label": "Tagline",
+      "name": "property_tagline",
+      "type": "text",
+      "instructions": "Short descriptor shown below the title. E.g. 'Hilton-Adjacent · Under Construction'"
+    },
+    {
+      "key": "field_property_location_text",
+      "label": "Location (Display Text)",
+      "name": "property_location_text",
+      "type": "text",
+      "instructions": "Full location string for display. E.g. 'Central Business District, Accra, Ghana'"
+    },
+    {
+      "key": "field_property_price_from",
+      "label": "Price From (USD)",
+      "name": "property_price_from",
+      "type": "text",
+      "instructions": "E.g. $620,000 or AED 3.2M / $870,000"
+    },
+    {
+      "key": "field_property_total_units",
+      "label": "Total Units",
+      "name": "property_total_units",
+      "type": "text"
+    },
+    {
+      "key": "field_property_bua",
+      "label": "Built-Up Area (sqm)",
+      "name": "property_bua",
+      "type": "text",
+      "instructions": "E.g. 17,435 sqm"
+    },
+    {
+      "key": "field_property_handover",
+      "label": "Handover / Delivery",
+      "name": "property_handover",
+      "type": "text",
+      "instructions": "E.g. Q3 2027 or 2028"
+    },
+    {
+      "key": "field_property_branding",
+      "label": "Hotel Branding",
+      "name": "property_branding",
+      "type": "text",
+      "instructions": "E.g. Ritz-Carlton, Hilton-Adjacent, BWH Hotels. Leave blank if none."
+    },
+    {
+      "key": "field_property_yield",
+      "label": "Projected Yield",
+      "name": "property_yield",
+      "type": "text",
+      "instructions": "E.g. 9–11% Gross"
+    },
+    {
+      "key": "field_property_payment_plan",
+      "label": "Payment Plan",
+      "name": "property_payment_plan",
+      "type": "text",
+      "instructions": "E.g. On Request, Available, Stage-based"
+    },
+    {
+      "key": "field_property_unit_types",
+      "label": "Unit Types",
+      "name": "property_unit_types",
+      "type": "text",
+      "instructions": "E.g. 1–4 Bed + Penthouses, Studios to 4-Bedrooms"
+    },
+    {
+      "key": "field_property_stat_1_value",
+      "label": "Hero Stat 1 — Value",
+      "name": "property_stat_1_value",
+      "type": "text",
+      "instructions": "E.g. 142"
+    },
+    {
+      "key": "field_property_stat_1_label",
+      "label": "Hero Stat 1 — Label",
+      "name": "property_stat_1_label",
+      "type": "text",
+      "instructions": "E.g. Units"
+    },
+    {
+      "key": "field_property_stat_2_value",
+      "label": "Hero Stat 2 — Value",
+      "name": "property_stat_2_value",
+      "type": "text"
+    },
+    {
+      "key": "field_property_stat_2_label",
+      "label": "Hero Stat 2 — Label",
+      "name": "property_stat_2_label",
+      "type": "text"
+    },
+    {
+      "key": "field_property_stat_3_value",
+      "label": "Hero Stat 3 — Value",
+      "name": "property_stat_3_value",
+      "type": "text"
+    },
+    {
+      "key": "field_property_stat_3_label",
+      "label": "Hero Stat 3 — Label",
+      "name": "property_stat_3_label",
+      "type": "text"
+    },
+    {
+      "key": "field_property_stat_4_value",
+      "label": "Hero Stat 4 — Value",
+      "name": "property_stat_4_value",
+      "type": "text"
+    },
+    {
+      "key": "field_property_stat_4_label",
+      "label": "Hero Stat 4 — Label",
+      "name": "property_stat_4_label",
+      "type": "text"
+    },
+    {
+      "key": "field_property_gallery",
+      "label": "Property Gallery",
+      "name": "property_gallery",
+      "type": "gallery",
+      "instructions": "Upload additional property images (separate from the featured image). Used in the gallery section of the single property page.",
+      "return_format": "array",
+      "preview_size": "medium",
+      "library": "all",
+      "min": 0,
+      "max": 20
+    },
+    {
+      "key": "field_property_overview_heading",
+      "label": "Overview Heading",
+      "name": "property_overview_heading",
+      "type": "text",
+      "instructions": "E.g. Accra's most architecturally ambitious address."
+    },
+    {
+      "key": "field_property_overview_body",
+      "label": "Overview Body",
+      "name": "property_overview_body",
+      "type": "wysiwyg",
+      "instructions": "Full property description — 3 paragraphs. Supports basic HTML formatting."
+    },
+    {
+      "key": "field_property_investment_case",
+      "label": "Investment Case",
+      "name": "property_investment_case",
+      "type": "repeater",
+      "instructions": "Add up to 4 investment reasons.",
+      "min": 1,
+      "max": 4,
+      "layout": "block",
+      "sub_fields": [
+        {
+          "key": "field_invest_title",
+          "label": "Title",
+          "name": "invest_title",
+          "type": "text"
+        },
+        {
+          "key": "field_invest_body",
+          "label": "Body",
+          "name": "invest_body",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "key": "field_property_highlights",
+      "label": "Key Features / Highlights",
+      "name": "property_highlights",
+      "type": "repeater",
+      "instructions": "Add up to 6 key feature cards.",
+      "min": 1,
+      "max": 6,
+      "layout": "block",
+      "sub_fields": [
+        {
+          "key": "field_highlight_title",
+          "label": "Title",
+          "name": "highlight_title",
+          "type": "text"
+        },
+        {
+          "key": "field_highlight_body",
+          "label": "Body",
+          "name": "highlight_body",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "key": "field_property_enquiry_price_label",
+      "label": "Enquiry Section — Price Label",
+      "name": "property_enquiry_price_label",
+      "type": "text",
+      "instructions": "Text shown next to the form. E.g. From $620,000 or Pricing on Qualification"
+    }
+  ],
+  "location": [
+    [{ "param": "post_type", "operator": "==", "value": "properties" }]
+  ],
+  "menu_order": 0,
+  "position": "normal",
+  "style": "default",
+  "label_placement": "top",
+  "instruction_placement": "label",
+  "active": true
+}
+```
+
+Verify the import worked:
+```bash
+wp acf field-group list
+```
+
+### Step 5 — Verify the Full Setup
+
+```bash
+# Confirm CPT is registered
+wp post-type get properties --fields=name,label,has_archive,public
+
+# Confirm taxonomies are registered
+wp taxonomy list --fields=name,label,hierarchical
+
+# Confirm terms exist
+wp term list property_location --fields=name,slug,count
+wp term list property_status --fields=name,slug,count
+wp term list property_type --fields=name,slug,count
+
+# Confirm ACF field group is active
+wp acf field-group list
+
+# Flush rewrites
+wp rewrite flush
+```
+
+---
+
+## Adding a Property Post via WP-CLI
+
+When the user wants to create a property, do it fully via WP-CLI:
+
+```bash
+# 1. Create the post
+wp post create \
+  --post_type=properties \
+  --post_title="The Octagon" \
+  --post_status=publish \
+  --post_excerpt="Hilton-adjacent branded residences in Accra's Central Business District." \
+  --porcelain
+
+# Note the returned post ID — use it for all subsequent commands
+
+# 2. Set taxonomy terms
+wp post term set <post_id> property_location cbd
+wp post term set <post_id> property_status under-construction
+wp post term set <post_id> property_type branded-residences
+
+# 3. Set ACF fields
+wp post meta update <post_id> property_tagline "Hilton-Adjacent · Under Construction"
+wp post meta update <post_id> property_location_text "Central Business District, Accra, Ghana"
+wp post meta update <post_id> property_price_from "$620,000"
+wp post meta update <post_id> property_total_units "142"
+wp post meta update <post_id> property_bua "17,435 sqm"
+wp post meta update <post_id> property_branding "Hilton-Adjacent"
+wp post meta update <post_id> property_yield "9–12% Gross"
+wp post meta update <post_id> property_unit_types "1–4 Bed + Penthouses"
+wp post meta update <post_id> property_stat_1_value "142"
+wp post meta update <post_id> property_stat_1_label "Units"
+wp post meta update <post_id> property_stat_2_value "8"
+wp post meta update <post_id> property_stat_2_label "Penthouses"
+wp post meta update <post_id> property_stat_3_value "17,435"
+wp post meta update <post_id> property_stat_3_label "sqm BUA"
+wp post meta update <post_id> property_enquiry_price_label "From $620,000"
+
+# 4. Set featured image (if image already in media library)
+wp post meta update <post_id> _thumbnail_id <attachment_id>
+```
+
+For ACF Repeater fields (highlights, investment case), set the serialised value via PHP eval or the REST API since WP-CLI meta update doesn't handle ACF's serialisation automatically:
+
+```bash
+wp eval '
+$post_id = <post_id>;
+update_field("property_highlights", [
+  ["highlight_title" => "Hilton-Adjacent Branding", "highlight_body" => "Co-located with Hilton hospitality infrastructure..."],
+  ["highlight_title" => "8 Sky Penthouses", "highlight_body" => "The top eight floors house bespoke sky penthouses..."],
+], $post_id);
+
+update_field("property_investment_case", [
+  ["invest_title" => "First-Mover in CBD Branded Stock", "invest_body" => "There is no comparable branded residential product..."],
+  ["invest_title" => "Corporate Tenant Pipeline", "invest_body" => "Ghana hosts the AfCFTA Secretariat..."],
+], $post_id);
+'
+```
+
+---
+
+## Theme Builder — Single Property Template
+
+### When to build this
+
+Build the Single Property template **once** — it applies automatically to every property post. When the user asks to build or redesign the single property page, always do it through Theme Builder, never as a regular page.
+
+### Step 1 — Create the template
+
+```
+mcp__elementor__elementor-mcp-create-theme-template({
+  type: "single",
+  title: "Single Property",
+  conditions: [{ type: "singular", name: "properties" }]
+})
+```
+
+### Step 2 — Get the design reference
+
+Ask the user: "Please share the URL of the design reference for the single property page." When the user provides a URL, open it and map every section to the native widget strategy below.
+
+### Step 3 — Build the template section by section
+
+The standard single property template structure (based on the existing HTML portfolio pages) is:
+
+**Section 1: Hero**
+- Full-screen Container (100vh, `min_height: {size: 100, unit: "vh"}`)
+- Background: Featured Image (Dynamic Tag → Featured Image) with dark overlay (`background_overlay` settings, opacity ~0.75)
+- Inside: Breadcrumbs widget (Pro) → Heading widget (Post Title, Dynamic Tag) → Text Editor (tagline, ACF Dynamic Tag `property_tagline`) → 4-column stats row using Text Editor or Heading widgets with ACF Dynamic Tags for each stat value and label
+
+**Section 2: Sticky Nav Bar**
+- Sticky container (position: sticky, top: 80px, z-index: 50)
+- Background: `rgba(13,19,12,0.97)` with backdrop blur
+- Left: Heading widget (Post Title, Dynamic Tag)
+- Right: Button widget → "Enquire Now →" (anchor to enquiry section), Button widget → "Gallery" (anchor to gallery section)
+
+**Section 3: Overview + Specs Panel**
+- Two-column container (70% / 30%)
+- Left column: Eyebrow Text widget, Heading widget (ACF `property_overview_heading`), Text Editor widget (ACF `property_overview_body` with WYSIWYG Dynamic Tag), two Button widgets (Request Floor Plans, Download Brochure)
+- Right column (sticky): Heading widget (specs title), then repeated Icon List or Text widgets showing each spec — use ACF Dynamic Tags for property_price_from, property_total_units, property_bua, property_unit_types, property_branding, property_handover, property_payment_plan. Add two Button widgets at the bottom (Register Interest, Speak to Advisor).
+
+**Section 4: Gallery**
+- Gallery widget (Pro) — source: ACF Field (Dynamic Tag → `property_gallery`). Layout: Grid, columns: 3. Lightbox: enabled.
+
+**Section 5: Key Features / Highlights**
+- Dark background container (`--navy-900`)
+- Heading widgets for section title
+- Loop Grid widget (Pro) — powered by a second field group query on the highlights repeater, OR manually build 6 card containers using ACF Dynamic Tags on a repeater-aware widget. Use the Elementor Pro Repeater Field dynamic tag to loop through `property_highlights`.
+
+**Section 6: Feature Split Panels**
+- Two alternating full-width 50/50 containers
+- Left: Image widget (source: ACF gallery item or specific image field)
+- Right: Text Editor container with eyebrow, Heading, Text Editor body
+
+**Section 7: Investment Case**
+- Light background container (`--ivory`)
+- Heading widgets for section title
+- 2-column grid of investment reason cards using Repeater Field dynamic tags on `property_investment_case`
+
+**Section 8: Enquiry Form**
+- Dark background container (`--navy-900`) with ID anchor `enquiry`
+- Two-column layout: left column (Heading widget with ACF enquiry_price_label, Text Editors for location/contact details), right column (Elementor Pro Form widget — standard enquiry form structure defined in the Forms section above)
+
+**Section 9: Related Properties**
+- Light grey background container
+- Heading widgets for section title
+- Loop Grid widget (Pro) — query: Properties post type, exclude current post, limit 3, order by date. Loop Item template: Property Card (built separately — see Loop Item section below)
+
+### Dynamic Tags Reference for Single Property Template
+
+| Widget | Dynamic Tag | ACF Field Key |
+|---|---|---|
+| Featured Image (hero bg) | Post Featured Image | — |
+| Post Title | Post Title | — |
+| Tagline | ACF Field → Text | property_tagline |
+| Location display | ACF Field → Text | property_location_text |
+| Price From | ACF Field → Text | property_price_from |
+| Total Units | ACF Field → Text | property_total_units |
+| BUA | ACF Field → Text | property_bua |
+| Branding | ACF Field → Text | property_branding |
+| Yield | ACF Field → Text | property_yield |
+| Unit Types | ACF Field → Text | property_unit_types |
+| Handover | ACF Field → Text | property_handover |
+| Payment Plan | ACF Field → Text | property_payment_plan |
+| Overview Heading | ACF Field → Text | property_overview_heading |
+| Overview Body | ACF Field → WYSIWYG | property_overview_body |
+| Gallery images | ACF Field → Gallery | property_gallery |
+| Highlights (repeater) | ACF Repeater Field | property_highlights |
+| Investment Case (repeater) | ACF Repeater Field | property_investment_case |
+| Enquiry price label | ACF Field → Text | property_enquiry_price_label |
+| Stat 1 Value | ACF Field → Text | property_stat_1_value |
+| Stat 1 Label | ACF Field → Text | property_stat_1_label |
+| Stat 2 Value | ACF Field → Text | property_stat_2_value |
+| Stat 2 Label | ACF Field → Text | property_stat_2_label |
+| Stat 3 Value | ACF Field → Text | property_stat_3_value |
+| Stat 3 Label | ACF Field → Text | property_stat_3_label |
+| Stat 4 Value | ACF Field → Text | property_stat_4_value |
+| Stat 4 Label | ACF Field → Text | property_stat_4_label |
+
+---
+
+## Theme Builder — Loop Item Template (Property Card)
+
+The Loop Item template defines what a single property card looks like when used inside a Loop Grid widget (on archive pages, the portfolio page, the homepage featured grid, and the related properties section).
+
+### Step 1 — Create the Loop Item template
+
+```
+mcp__elementor__elementor-mcp-create-theme-template({
+  type: "loop-item",
+  title: "Property Card",
+  conditions: []    // conditions are set on the Loop Grid widget itself, not the item template
+})
+```
+
+### Step 2 — Build the card
+
+The property card structure:
+
+**Outer container:** Full height, dark overlay, relative positioning, cursor pointer (link the whole card via the container's link setting → Dynamic Tag → Post URL)
+
+**Media area:**
+- Featured Image widget (Pro) — Dynamic Tag: Post Featured Image. Object-fit: cover. Aspect ratio: 4:3.
+- Overlay div (inner container with semi-transparent dark background, absolute positioning via custom positioning controls)
+
+**Badge:**
+- Button widget (no click action, styled as a badge) — text from ACF Dynamic Tag `property_status` taxonomy term OR a Text widget with taxonomy term Dynamic Tag. Style: small, uppercase, gold border.
+
+**Info area (bottom of card):**
+- Text Editor: eyebrow (taxonomy term — property_type, Dynamic Tag: Post Terms)
+- Heading widget: Post Title (Dynamic Tag)
+- Text Editor: location (ACF Dynamic Tag `property_location_text`)
+- Stats row: 2-column container with Text Editors showing price (ACF `property_price_from`) and yield (ACF `property_yield`)
+- Button widget: "View Property →" — link via Dynamic Tag → Post URL
+
+**Card hover effect:** Use Elementor's Motion Effects or Transform controls on the outer container for a subtle translateY(-6px) on hover. Add box-shadow via the Border tab.
+
+### Step 3 — Use the Loop Item in Loop Grid widgets
+
+Wherever a grid of property cards is needed:
+
+```
+Widget: Loop Grid
+Template: Property Card (the loop item template just created)
+Query:
+  - Post Type: Properties
+  - Filters: by taxonomy if filtering by location/status/type
+  - Order: Date (newest first) or Menu Order
+  - Posts Per Page: as needed (3 for related, 12 for archive)
+Columns: 3 (desktop), 2 (tablet), 1 (mobile)
+Gap: 24px
+```
+
+---
+
+## Building Non-Portfolio Pages
+
+For non-portfolio pages (Contact, Investors, International, Services, Sell With Us, etc.), build as regular Elementor pages (not Theme Builder templates). The design reference will be provided by the user as a URL.
+
+### Build Order for Any Page
+
+1. `list-pages` — check if the page already exists
+2. If not: `create-page({ title, status: "draft", template: "elementor_canvas" })` — Canvas template removes theme chrome if building standalone; use default template if the global header/footer should display
+3. `get-global-settings` — confirm design tokens are set
+4. Ask the user for the design reference URL
+5. Map every section in the design to native Elementor Pro widgets using the widget table above
+6. Build top-down, one section at a time
+7. After each section: `get-page-structure(post_id)` to verify nesting
+8. When complete, set `status: "publish"` and share the page URL for review
+
+### Common Non-Portfolio Sections and Their Widget Mappings
+
+**Hero sections:**
+- Full-screen Container, background image + overlay, Heading widget (display serif), Text Editor (lead copy), Button widgets (CTAs)
+
+**Stats strips:**
+- Single-row Container, repeated Heading + Text Editor pairs for each stat
+
+**Two-column image/text splits:**
+- 50/50 Container, Image widget on one side, Container with Heading + Text Editor + Button on the other
+
+**Numbered feature grids:**
+- Multi-column Container, each cell: Text Editor (number in display font), Heading (feature title), Text Editor (body)
+
+**Testimonials:**
+- Testimonial widget (Pro) or Media Carousel widget
+
+**Team/people grids:**
+- Loop Grid widget if using a People CPT, or manually built card Containers with Image + Heading + Text Editor widgets
+
+**Contact page:**
+- Two-column layout: left column has Heading + Text Editor (contact details, office addresses, map embed via Google Maps widget), right column has Elementor Pro Form widget
+
+**FAQ / Accordion sections:**
+- Accordion widget (Pro) — each item has a title and the expanded content uses the Text Editor within the accordion item
+
+---
+
+## Page Building — Detailed Widget Call Convention
+
+### Heading Widget
+
+```js
 mcp__elementor__elementor-mcp-add-heading({
-  post_id: 11,
-  parent_id: "abc123",
-  title: "where estates <em>are entrusted</em>",
-  header_size: "h1",
-  title_color: "#FFFFFF",
-  typography_typography: "custom",       // ← required to enable typography
+  post_id: <id>,
+  parent_id: "<container_id>",
+  title: "Your heading text — use <em> for italic emphasis",
+  header_size: "h1",                    // h1, h2, h3, h4, h5, h6
+  title_color: "#f8f4ed",               // --ivory
+  align: "left",
+  typography_typography: "custom",       // REQUIRED
   typography_font_family: "Cormorant Garamond",
-  typography_font_size: {size: 110, unit: "px"},
+  typography_font_size: { size: 80, unit: "px" },
   typography_font_weight: "300",
-  typography_line_height: {size: 0.98, unit: "em"},
-})
-
-// ✗ WRONG — silently fails or returns "title is required"
-mcp__elementor__elementor-mcp-add-heading({
-  post_id: 11,
-  parent_id: "abc123",
-  settings: {title: "...", typography_font_family: "..."}
+  typography_line_height: { size: 1.0, unit: "em" },
+  typography_letter_spacing: { size: -0.02, unit: "em" },
 })
 ```
 
-`add-container` is the **exception** — it takes a `settings: {}` object. Don't generalize from one to the other.
-
-### Always set `typography_typography: "custom"`
-
-Without this, the other typography_* keys are ignored. Same applies to `css_filters_css_filter: "custom"` for image filters, etc. — these "enable" flags are how Elementor knows you want to override defaults.
-
-### Italic emphasis pattern
-
-Display headings often need a single italic-emphasized word. Don't use a separate widget — just inline `<em>` in the title:
+### Text Editor Widget
 
 ```js
-title: "A <em>quiet</em> practice for an <em>uncommon</em> clientele."
-```
-
-Cormorant Garamond and most luxury serifs have italic variants that auto-load when `<em>` appears. Confirm via the rendered page; if italics fail, the global typography needs the italic variant explicitly enabled.
-
-## The widget-vs-HTML decision — DEFAULT TO NATIVE WIDGETS
-
-> 🚨 **CRITICAL ANTI-PATTERN — read this first.**
->
-> **Do NOT paste an entire HTML page into one HTML widget.** Do NOT build a homepage that is "1 container with 3 HTML widgets inside." That is not building with Elementor — that is using Elementor as a wrapper around a static webpage. The user **cannot edit it** in the Elementor visual editor, **cannot reuse the design tokens**, and **cannot iterate** on it without going back to source code.
->
-> If you find yourself thinking *"I'll just dump this section as HTML, it's faster,"* **STOP.** Break it into native widgets.
-
-### Always default to native widgets
-
-For every section the user wants, build it from native Elementor widgets:
-
-- **Headings** → `add-heading` widget *(supports inline `<em>` for italic emphasis)*
-- **Body copy** → `add-text-editor` widget
-- **Images** → `add-image` widget *(NOT an `<img>` tag inside an HTML widget)*
-- **Buttons / CTAs** → `add-button` widget *(NOT an `<a>` styled as a button)*
-- **Layout / spacing** → `add-container` with proper `flex_*` settings *(NOT `<div>`s with CSS flex)*
-- **Lists** → `add-icon-list` widget
-- **Tabs** → `add-tabs` widget
-- **Accordions / FAQs** → `add-accordion` widget
-- **Forms** → Fluent Forms shortcode via `add-shortcode` widget
-- **Nav menu in headers** → UAE Nav Menu widget *(`uael-nav-menu`)*
-
-### When HTML widget IS allowed *(narrow list — exceptions only)*
-
-Only reach for an HTML widget in these specific cases. **Anything not on this list goes through native widgets.**
-
-1. **Tab/accordion content with rich layout.** `add-tabs` only accepts `tab_content` as a string of HTML, so a multi-card grid inside a tab MUST be HTML. *(But the wrapping Tabs widget itself is still native.)*
-2. **Decorative-only flourishes** with no native equivalent — a thin gold rule with a CSS-pseudo-element flourish, an animated underline that grows on hover, a gradient overlay on a child element. **Even then, prefer to pair it with a native widget rather than replacing one.**
-3. **Form HTML as a flagged placeholder** when no real form plugin is wired up yet — and you must explicitly tell the user "form is visual only, doesn't capture submissions."
-4. **Site-wide CSS overrides** scoped to a specific Elementor element ID *(e.g., styling the tab strip of an `add-tabs` widget that the widget controls don't expose)*. These should be small style blocks, not whole sections of markup.
-
-### What about card grids of 4+ items?
-
-Earlier versions of this skill said "use one HTML widget for card grids — it's faster than 50 widget calls." That advice was wrong because it led to non-editable pages.
-
-**The correct path for card grids:**
-
-- Build the first card with native widgets *(Container → Image → Heading → Text Editor → Button)*
-- Use `duplicate-element` to copy it 3+ more times
-- Use `update-element` to change the copy/image on each duplicate
-- Wrap them in a parent Container with `flex_direction: row` and `flex_wrap: wrap`
-
-This is more widget calls, yes, but the result is a **real Elementor card grid** the user can edit, restyle globally, or reuse as a template.
-
-### Cross-widget styling — `<style>`-only HTML widgets
-
-When you need to style a native widget from outside (e.g., overriding the Tabs widget tab strip styles that the widget controls don't expose), use a **`<style>`-only HTML widget**: it contains ONLY a `<style>` block — no markup, no rendered content. Scope every selector to the parent Elementor element ID:
-
-```html
-<style>
-.elementor-element-f8d1545 .elementor-tab-title {
-  text-transform: uppercase !important;
-  letter-spacing: .26em !important;
-}
-.elementor-element-f8d1545 .elementor-tab-title.elementor-active {
-  border-bottom-color: #171615 !important;
-}
-</style>
-```
-
-The `f8d1545` is the `element_id` returned when you created the tabs widget. Always grab and remember these IDs — they're the only stable selector across page reloads.
-
-> ⚠️ **An HTML widget used for cross-widget styling MUST contain only `<style>`.** If you find yourself adding HTML markup *(divs, anchors, spans with text content)* alongside the style block, you're falling back into the anti-pattern at the top of this section. Stop. That markup belongs in native widgets.
-
-## When the user asks to BUILD — building order
-
-> Use this section only when the user has explicitly asked you to build something. Do not run this flow on a bare `/elementor-mcp` invocation.
-
-For a new page, build top-down section by section, in small commits, verifying after each:
-
-1. `update-global-colors` + `update-global-typography` — establish design tokens
-2. `create-page({title, status: "publish", template: "elementor_canvas"})` — Canvas template removes theme header/footer chrome so your design is the only thing on the page
-3. (Via WP-CLI) Set as static front page: `wp option update show_on_front page; wp option update page_on_front <id>`
-4. Build sections — outer container → inner content container (boxed, max-width 1360px-ish) → content
-5. After each section: `get-page-structure(post_id)` to verify nesting, or just curl the front page
-6. **Pause for human review** before building header/footer (which use Header Footer Elementor templates, a different flow)
-
-## When the user asks to EDIT
-
-Approach existing pages surgically — don't rebuild what you don't have to:
-
-1. `list-pages` to find the page they're editing
-2. `get-page-structure(post_id)` to see the current widget tree and grab element IDs
-3. For a specific element they describe ("the hero headline", "the third listing card"), use `find-element` if needed, then `update-element` with only the fields that change
-4. Verify the edit by re-reading `get-page-structure` or curling the rendered page
-5. **Never delete a section unless they explicitly ask** — even when restructuring. Use `move-element` or `update-element` first.
-
-## When the user asks to REFERENCE / INSPECT
-
-Read-only tools, no writes. Useful for "show me", "tell me", "what's", "list" requests:
-
-- `list-pages` — what pages exist
-- `get-global-settings` — colors, typography, layout settings
-- `get-page-structure(post_id)` — what's on a page
-- `get-element-settings(element_id)` — exact settings of one widget
-- `find-element(post_id, ...)` — locate a widget by content/type
-
-Format the response as a clear summary, not a JSON dump. The user wants understanding, not raw data.
-
-## When the user asks to EXPLORE / "what can you do?"
-
-Give a short menu *(don't dump all 75 tools)*. Point them at the four modes from the First Action Protocol with concrete examples:
-
-- *"Build a homepage from this HTML mockup"* → mode 1
-- *"Make the hero text 20% smaller"* → mode 2
-- *"Show me what colors are currently set globally"* → mode 3
-- *"What pages exist on the site?"* → mode 3
-
-Then ask which mode they want.
-
-## Header/Footer notes
-
-The MCP plugin's `create-theme-template` tool requires **Elementor Pro**. With Elementor Free, headers and footers are built using **Ultimate Addons for Elementor (UAE)** by Brainstorm Force (the kit's setup wizard auto-installs this; alternatively the lighter **Header Footer Elementor (HFE)** plugin from the same company also works — both share the same `elementor-hf` post type).
-
-### Building a site-wide header
-
-1. **Create the WordPress menu first.** Tell the user to go to WP Admin → Appearance → Menus, name it (e.g. "Main"), add the pages they want, and save. The MCP cannot create WP nav menus directly — this step is a one-minute manual action.
-
-2. **Create the header template post.** Use `create-page` with `post_type: "elementor-hf"` and a title like "Site Header". Then set the following post meta via WP-CLI or the `update-element` flow:
-   - `ehf_template_type` = `"type_header"` (or `"type_footer"` for footers)
-   - `display-on-canvas` = `"yes"` (displays site-wide; alternative meta keys like `ehf_target_include_locations` may apply for narrower scopes)
-
-3. **Build the layout.** A row container with three children:
-   - **Left:** logo (Heading widget with brand name in display serif, OR `Site Logo` widget if UAE is installed)
-   - **Center:** **UAE Nav Menu widget** (`uael-nav-menu`) pointed at the WordPress menu by name. UAE's nav menu widget is **free** and handles mobile hamburger, dropdowns, hover states, active-page highlighting automatically — much cleaner than rendering nav as raw HTML.
-   - **Right:** Button widget with "Contact" or "Get In Touch" CTA
-
-4. **Verify display.** After building, instruct the user to check WP Admin → Appearance → Header Footer Builder → confirm the Display On rule is set to "Entire Website."
-
-### When UAE Nav Menu isn't available
-
-If only HFE (the lighter plugin) is installed without UAE: use the Shortcode widget calling `[wp_nav_menu menu="Main" container=""]` — WordPress's built-in shortcode renders the menu as a real `<ul>` with all the right classes for active-page highlighting and responsive styling.
-
-**Do not** fall back to manually listing the menu items inside an HTML widget — that hard-codes the navigation in two places (the WP menu AND the Elementor template) which means future menu edits won't reflect in the header. Always render the menu through `[wp_nav_menu]` or the UAE widget.
-
-### Footer pattern
-
-Identical post type (`elementor-hf`) but `ehf_template_type = "type_footer"`. Layout is typically a 4-column container (brand block + 3 link columns) on a dark background, with a bottom row containing copyright + social icons.
-
-### Forms — Fluent Forms (the recommended path)
-
-Elementor's native Form widget is Pro. The kit's wizard auto-installs **Fluent Forms** as the free workaround. The flow is split: the user builds the form, then Claude wires it into the page and styles it.
-
-#### The split — what Claude does vs. what the user does
-
-**The user does (manual, ~2-3 min in WP Admin):**
-
-1. **Fluent Forms → New Form** → pick the *Contact Form* template *(pre-built with Name / Email / Subject / Message)* OR start from blank
-2. *(optional)* Drag in extra fields — Phone, dropdown, etc.
-3. **Save Form** — note the form ID at the top of the page (usually `1` for the first form)
-4. **Settings → Email Notifications** → confirm the To address (default: `{admin_email}`)
-
-**Claude does:**
-
-1. Replace any placeholder form (HTML widget) in the contact section with `add-shortcode` widget containing `[fluentform id="<ID>"]`
-2. Add a small `<style>` block (in an HTML widget alongside, NOT replacing the shortcode widget) that scopes Fluent Forms styling to match the site's design
-
-#### Wiring the form
-
-```js
-// Drop the shortcode widget where the form should appear
-mcp__elementor__elementor-mcp-add-shortcode({
-  post_id: <page_id>,
-  parent_id: <contact_section_container_id>,
-  shortcode: '[fluentform id="1"]'
+mcp__elementor__elementor-mcp-add-text-editor({
+  post_id: <id>,
+  parent_id: "<container_id>",
+  editor: "<p>Your paragraph text here.</p>",
+  text_color: "#606060",                // --stone-500
+  typography_typography: "custom",
+  typography_font_family: "Manrope",
+  typography_font_size: { size: 16, unit: "px" },
+  typography_font_weight: "400",
+  typography_line_height: { size: 1.8, unit: "em" },
 })
 ```
 
-#### Styling — verified Fluent Forms class structure (Fluent 6.x)
+### Button Widget
 
-```
-.fluentform                            ← outer wrapper
-.fluentform_wrapper_<formId>           ← per-form wrapper (e.g. .fluentform_wrapper_1)
-  .ff-default                          ← default skin marker
-    form.frm-fluent-form
-      .ff-el-group                     ← each field block
-        .ff-el-input--label            ← label
-          label                        ← actual <label> tag
-        .ff-el-input--content
-          input.ff-el-form-control     ← text inputs
-          textarea.ff-el-form-control  ← textareas
-      .ff-t-container                  ← two-column row (e.g. first/last name)
-        .ff-t-cell                       ← each cell
-      .ff_submit_btn_wrapper
-        button.ff-btn.ff-btn-submit    ← submit button
-      .ff-el-is-required               ← required field marker
-```
-
-#### CSS variables (the easiest override path)
-
-Fluent Forms exposes these custom properties on `:root`. **Redefine them on the per-form wrapper to restyle the whole form without specificity battles:**
-
-```css
-.fluentform_wrapper_1 {
-  --fluentform-primary: #5C1A1B;          /* submit button bg + focus accent */
-  --fluentform-secondary: #171615;        /* body text in inputs */
-  --fluentform-border-color: #C9C2B3;     /* input borders */
-  --fluentform-border-radius: 0px;        /* hairline-square inputs */
-}
+```js
+mcp__elementor__elementor-mcp-add-button({
+  post_id: <id>,
+  parent_id: "<container_id>",
+  text: "Register Interest →",
+  link: { url: "#enquiry", is_external: false },
+  button_type: "custom",
+  background_color: "#243421",          // --navy-500
+  button_text_color: "#f8f4ed",         // --ivory
+  border_radius: { unit: "px", size: 0 },
+  typography_typography: "custom",
+  typography_font_family: "Manrope",
+  typography_font_size: { size: 12, unit: "px" },
+  typography_font_weight: "600",
+  typography_letter_spacing: { size: 2, unit: "px" },
+  typography_text_transform: "uppercase",
+  padding: { top: 16, right: 32, bottom: 16, left: 32, unit: "px", isLinked: false },
+})
 ```
 
-That alone gets you ~80% of the way to a custom design.
+### Container Widget
 
-#### Full styling pattern (when CSS vars aren't enough)
-
-For the remaining 20% (typography overrides, hairline-only borders, custom button feel), use scoped selectors with the per-form wrapper class. Specificity (0,2,0) matches Fluent's defaults; load order wins because your styles come after.
-
-```css
-/* Scope EVERYTHING to .fluentform_wrapper_<id> so you don't bleed into other pages. */
-
-.fluentform_wrapper_1 .ff-el-form-control {
-  font-family: 'Inter Tight', sans-serif;
-  font-size: 14px;
-  border: none;
-  border-bottom: 1px solid var(--fluentform-border-color);
-  border-radius: 0;
-  padding: 14px 0;
-  background: transparent;
-  color: #171615;
-}
-
-.fluentform_wrapper_1 .ff-el-form-control:focus {
-  border-bottom-color: #171615;
-  box-shadow: none;
-}
-
-.fluentform_wrapper_1 textarea.ff-el-form-control {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 17px;
-  min-height: 100px;
-}
-
-.fluentform_wrapper_1 .ff-el-input--label label {
-  font-family: 'Inter Tight', sans-serif;
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: #8A857E;
-}
-
-.fluentform_wrapper_1 .ff-btn-submit {
-  background: #5C1A1B;
-  color: #fff;
-  border: 1px solid #5C1A1B;
-  border-radius: 0;
-  padding: 16px 26px;
-  font-family: 'Inter Tight', sans-serif;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-}
-
-.fluentform_wrapper_1 .ff-btn-submit:hover {
-  background: #3F1011;
-  border-color: #3F1011;
-}
-
-/* Two-column rows — turn into a CSS grid with consistent gap */
-.fluentform_wrapper_1 .ff-t-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 22px;
-}
-@media (max-width: 640px) {
-  .fluentform_wrapper_1 .ff-t-container {
-    grid-template-columns: 1fr;
+```js
+mcp__elementor__elementor-mcp-add-container({
+  post_id: <id>,
+  parent_id: "<parent_container_id>",
+  settings: {
+    content_width: "boxed",
+    boxed_width: { unit: "px", size: 1280 },
+    flex_direction: "row",
+    flex_justify_content: "space-between",
+    flex_align_items: "center",
+    flex_gap: { unit: "px", size: 32 },
+    padding: { top: 100, right: 0, bottom: 100, left: 0, unit: "px", isLinked: false },
+    background_background: "classic",
+    background_color: "#0d130c",
+    min_height: { unit: "vh", size: 100 },    // for hero sections
   }
-}
-
-/* Asterisk marker on required fields */
-.fluentform_wrapper_1 .ff-el-is-required label::after {
-  color: #5C1A1B;
-}
+})
 ```
 
-#### Where to inject the styles
+### Image Widget
 
-Two options:
-
-1. **Drop an HTML widget right above (or below) the Shortcode widget** with the `<style>` block inside. Wrap selectors in `.fluentform_wrapper_<id>` to keep them scoped. *(Recommended — keeps styles co-located with the form.)*
-2. **Add to Customizer → Additional CSS** *(Appearance → Customize)* — site-wide, persists across page rebuilds. *(Better for production sites where the form appears on multiple pages.)*
-
-#### Common gotchas
-
-- **Find the form ID by looking at the form's URL in WP Admin** — `/wp-admin/admin.php?page=fluent_forms&route=editor&form_id=1` → ID is `1`. Or query the DB: `SELECT id, title FROM wp_fluentform_forms`.
-- **Do NOT remove the `.ff-default` class** by overriding `class` attributes — Fluent's submit button styling cascades from it.
-- **Fluent's CSS loads after page render via `enqueue_scripts`.** If your overrides aren't applying, check that your `<style>` block lives in a widget that renders inside the page body (not the head).
-- **Asterisks for required fields** are pseudo-elements (`::after`) — color them via `.ff-el-is-required label::after { color: ... }`, not `color: ...` on the label itself.
-
-### Other form options (when Fluent Forms isn't available)
-
-1. **Contact Form 7** — same shortcode pattern: `[contact-form-7 id="..."]`. Less polished default look, but free and works.
-2. **Styled HTML `<form>` with a JS-alert handler** — only as a flagged visual placeholder for early builds. **Tell the user explicitly: "form is visual only — submissions don't go anywhere yet. Wire to Fluent Forms before going live."**
-
-## Setup gotchas (what bit me last time)
-
-- **The application password's *label* is not the username.** A user creates an Application Password and gives it a name like "Claude MCP", but the actual WP username remains `admin` or `test` or whatever they set up. If `curl -u "ClaudeMCP:..."` returns 401, try `curl -u "admin:..."` or check `GET /wp-json/wp/v2/users` to find the real slug.
-- **Local-by-Flywheel `wp-config.php` says `DB_HOST=localhost`** but the real MySQL is on a per-site Unix socket. WP-CLI fails with "Error establishing a database connection" until you pass `-d mysqli.default_socket=/path/to/mysqld.sock`. The setup script handles this; if doing it manually, find the socket via `find ~/Library/Application\ Support/Local/run -name mysqld.sock`.
-- **Neither MCP plugin is on wordpress.org.** Cannot install via REST API by slug — must download zips from GitHub Releases.
-- **The elementor-mcp release zipball has an ugly auto-generated folder name** (`msrbuilds-elementor-mcp-<sha>/`). WordPress uses the folder name as the plugin slug. Repack with a clean `elementor-mcp/` folder before installing.
-- **Claude Code only loads `.mcp.json` at startup** — after writing one, the user must quit and reopen.
-- **The `detect-elementor-version` tool errors with a schema validation bug** in v1.5.0 (`elementor_pro_version` is null but schema says string). Don't rely on it; use `list-pages` for the auth-works check instead.
-
-## Live-host vs Local differences
-
-**Local-by-Flywheel:** Plugin install via the bundled WP-CLI binary at `/Applications/Local.app/Contents/Resources/extraResources/bin/wp-cli/posix/wp` with PHP at `~/Library/Application Support/Local/lightning-services/php-*/bin/darwin-arm64/bin/php` and the per-site MySQL socket. The setup script automates all of this.
-
-**Live host (cPanel/Cloudways/Kinsta/etc.):** Plugin install via WP Admin → Plugins → Add New → Upload Plugin (manual upload of the two zips). Auth is the same — REST API + Application Password. **MCP URL** changes to `https://<live-domain>/wp-json/mcp/elementor-mcp-server`. **Important:** if the live site is HTTPS (it should be), make sure curl/Claude Code can reach it from your local machine — some hosts block non-browser User-Agents on `/wp-json/`. The setup script's "live" path tests this with a single curl before writing `.mcp.json`.
-
-## Tool-loading discipline
-
-The MCP exposes ~75 deferred tools. Don't load them all at once — fetch schemas lazily as you build:
-
-- **First call:** `list-pages` (no schema needed — pre-loaded by ToolSearch when triggered)
-- **Before building containers:** load `get-container-schema`, `add-container`, `update-container`
-- **Before placing widgets:** load `add-heading`, `add-text-editor`, `add-button`, `add-image`, `add-html` in one batch
-- **Before specific widgets:** load `add-tabs`, `add-icon-list`, `add-divider`, `add-spacer` as needed
-
-Use `ToolSearch` query format `select:tool1,tool2,tool3` to load multiple in one call.
-
-## What the MCP **cannot** do (set expectations)
-
-- Install plugins or themes (use WP-CLI or WP Admin instead)
-- Set the static front page (use `wp option update`)
-- Build a custom header/footer on Elementor Free without the HFE plugin
-- Auto-translate arbitrary HTML/CSS into Elementor widgets — you read the source design and emit widget calls
-- Pixel-perfect parity with hand-coded HTML — Elementor's flexbox container model is the ceiling
-
-## Quick reference — the build flow that works *(mode 1 only)*
-
-> Use this flow only after the user has explicitly chosen "Build" or asked to build a new site/page. Do **not** run this flow as a default response to `/elementor-mcp` — see the First Action Protocol at the top.
-
-```
-1. setup-elementor-mcp.sh          # one-time, ~3 minutes
-2. Quit + reopen Claude Code       # picks up .mcp.json
-3. list-pages                      # confirm auth
-4. get-global-settings             # see current kit
-5. update-global-colors + typography
-6. create-page (Elementor Canvas template)
-7. Set as front page via WP-CLI
-8. Build sections top-down, one at a time
-9. After each: get-page-structure or curl the front page
-10. Pause for human review before header/footer
+```js
+mcp__elementor__elementor-mcp-add-image({
+  post_id: <id>,
+  parent_id: "<container_id>",
+  image: { url: "<image_url>", id: <attachment_id> },
+  image_size: "full",
+  width: { unit: "%", size: 100 },
+  object_fit: "cover",
+})
 ```
 
-When working from a designed HTML mockup, map the source design to Elementor like this:
+For dynamic featured image (in templates):
+```js
+// Set the image source to Dynamic Tag: Post Featured Image
+// This is configured in the Elementor editor UI after the widget is placed,
+// or via the dynamic_image setting if the MCP supports it
+```
 
-- **Brand colors** → `update-global-colors`
-- **Brand fonts** → `update-global-typography`
-- **Section copy** → `add-heading` + `add-text-editor` widgets
-- **Card grids (4+ identical items)** → build one card with native widgets, then `duplicate-element` and `update-element` per copy
-- **Tabs/accordions** → native `add-tabs`/`add-accordion` widgets *(HTML allowed inside `tab_content` strings only — see anti-pattern section)*
-- **Forms** → real Fluent Forms shortcode via `add-shortcode` widget *(see Fluent Forms section)*
-- **Headers/footers** → `elementor-hf` post type with UAE Nav Menu widget for nav
+---
 
-> 🚨 **Final reminder:** Default to native widgets. The HTML widget is only for the four narrow cases listed in the anti-pattern section. Never paste a complete page section as raw HTML — the user must be able to edit the result inside Elementor.
+## Inspecting and Editing Existing Content
+
+### Finding what's on a page
+
+```
+mcp__elementor__elementor-mcp-get-page-structure({ post_id: <id> })
+```
+
+This returns the full widget tree. Read it to find:
+- Container and widget IDs (use for `parent_id` in add calls and `element_id` in update calls)
+- Current widget settings
+- Nesting structure
+
+### Editing a specific widget
+
+```
+mcp__elementor__elementor-mcp-update-element({
+  post_id: <id>,
+  element_id: "<widget_id>",
+  settings: {
+    // only include the settings you want to change
+    title_color: "#7e745c",
+  }
+})
+```
+
+Never rebuild a section to change one setting. Always use `update-element` for surgical edits.
+
+### Finding a specific element
+
+```
+mcp__elementor__elementor-mcp-find-element({
+  post_id: <id>,
+  search: "Register Interest"    // searches by content text or widget type
+})
+```
+
+---
+
+## Tool-Loading Discipline
+
+The MCP exposes many deferred tools. Load lazily:
+
+- **Always safe first:** `list-pages`, `get-global-settings`
+- **Before building containers:** load `get-container-schema`, `add-container`
+- **Before placing widgets:** load `add-heading`, `add-text-editor`, `add-button`, `add-image` in one batch
+- **Before Theme Builder work:** load `create-theme-template`, `get-theme-templates`
+- **Before Loop Grid work:** load `add-loop-grid`, `get-loop-item-templates`
+- **Specific as needed:** `add-tabs`, `add-accordion`, `add-form`, `add-gallery`, `add-nav-menu`, `add-social-icons`, `add-divider`, `add-spacer`, `add-icon-list`, `add-breadcrumbs`, `add-posts`, `add-site-logo`, `add-featured-image`, `add-post-title`
+
+Use `ToolSearch` with `select:tool1,tool2,tool3` to load multiple in one call.
+
+---
+
+## What the MCP Cannot Do — Managed Exceptions
+
+These tasks require WP-CLI or WP Admin and must be handled via those routes, not the MCP:
+
+| Task | Method |
+|---|---|
+| Register a custom post type | WP-CLI `wp eval` + `functions.php` |
+| Register taxonomies | WP-CLI `wp eval` + `functions.php` |
+| Create taxonomy terms | WP-CLI `wp term create` |
+| Import ACF field groups | WP-CLI `wp acf import` |
+| Set post taxonomy terms | WP-CLI `wp post term set` |
+| Set ACF field values | WP-CLI `wp post meta update` or `wp eval update_field()` |
+| Set static front page | WP-CLI `wp option update` |
+| Set Theme Builder display conditions | MCP `create-theme-template` with conditions array |
+| Upload images to media library | WP-CLI `wp media import` or WP Admin |
+| Create WordPress nav menus | WP-CLI `wp menu create` + `wp menu item add-post` |
+
+---
+
+## Quick Reference — Build Flows
+
+### New Portfolio Property (full flow)
+
+```
+1. wp post create (Properties CPT)                    → get post ID
+2. wp post term set (location, status, type)
+3. wp post meta update (all ACF fields)
+4. wp eval update_field (repeater fields)
+5. wp media import (featured image) → set _thumbnail_id
+6. Single Property template auto-applies (Theme Builder)
+7. Verify at /properties/<slug>/
+```
+
+### New Non-Portfolio Page (full flow)
+
+```
+1. list-pages                                          → check if exists
+2. create-page (draft, default template)
+3. get-global-settings                                 → confirm design tokens
+4. User provides design reference URL
+5. Map design → native Pro widgets
+6. Build section by section, verify with get-page-structure
+7. Set status: publish
+8. Share URL for user review
+```
+
+### New Theme Builder Template (full flow)
+
+```
+1. create-theme-template (type, title, conditions)     → get template post ID
+2. get-container-schema                                → read layout keys
+3. Build layout top-down with native Pro widgets
+4. Use Dynamic Tags for all data-driven content
+5. get-page-structure to verify
+6. Confirm template is displaying via conditions
+```
+
+### Loop Grid Setup (full flow)
+
+```
+1. create-theme-template (type: loop-item)             → build Property Card template
+2. Add Loop Grid widget to target page/template
+3. Set Loop Grid query: post type = properties, filters, order
+4. Set Loop Grid template: Property Card
+5. Set columns, gap, pagination
+6. Verify cards display correct dynamic data
+```
